@@ -39,11 +39,43 @@ async function run() {
       .db("jobProtal")
       .collection("job-applications");
 
+    // add jobs
+    app.post("/jobs", async (req, res) => {
+      const newJob = req.body;
+      const result = await jobsCollection.insertOne(newJob);
+      res.send(result);
+    });
+
     // all jobs
     app.get("/jobs", async (req, res) => {
-      const cursor = jobsCollection.find();
+      const email = req.query.email;
+      let query = {};
+      if (email) {
+        query = { hr_email: email };
+      }
+      const cursor = jobsCollection.find(query);
       const result = await cursor.toArray();
       res.send(result);
+    });
+
+    // jobs deleted
+    app.delete("/jobs/:id", async (req, res) => {
+      const id = req.params.id;
+      try {
+        const result = await jobsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        if (result.deletedCount === 1) {
+          res.status(200).send({ message: "Job successfully deleted" });
+        } else {
+          res.status(404).send({ error: "Job not found" });
+        }
+      } catch (error) {
+        console.error("Error deleting job:", error);
+        res
+          .status(500)
+          .send({ error: "An error occurred while deleting the job" });
+      }
     });
 
     // specific data load
@@ -62,30 +94,75 @@ async function run() {
       const result = await jobApplicationCollection.find(query).toArray();
 
       // fokira way to aggregate data
-      for(const application of result ){
-        console.log(application.job_id) 
-        const query1 = { _id: new ObjectId(application.job_id)}
+      for (const application of result) {
+        console.log(application.job_id);
+        const query1 = { _id: new ObjectId(application.job_id) };
         const job = await jobsCollection.findOne(query1);
-        if(job){
-            application.title = job.title;
-            application.company = job.company;
-            application.company_logo = job.company_logo;
-            application.jobType = job.jobType;
-            application.applicationDeadline = job.applicationDeadline;
-            application.category = job.category;
-            application.location = job.location;
-
+        if (job) {
+          application.title = job.title;
+          application.company = job.company;
+          application.company_logo = job.company_logo;
+          application.jobType = job.jobType;
+          application.applicationDeadline = job.applicationDeadline;
+          application.category = job.category;
+          application.location = job.location;
         }
       }
       res.send(result);
     });
 
+    // application view api
+    app.get('/job-applications/jobs/:job_id', async (req, res) =>{
+      const jobId = req.params.job_id;
+      const query = {job_id: jobId}
+      const result = await jobApplicationCollection.find(query).toArray();
+      res.send(result);
+    })
+
     // job appliction apis
     app.post("/job-applications", async (req, res) => {
       const application = req.body;
       const result = await jobApplicationCollection.insertOne(application);
+
+      // not the best way (use aggregate)
+      // skip ----> it
+
+      const id = application.job_id;
+      const query = { _id: new ObjectId(id) };
+      const job = await jobsCollection.findOne(query);
+      let NewCount = 0;
+      if (job.applicationCount) {
+        NewCount = job.applicationCount + 1;
+      } else {
+        NewCount = 1;
+      }
+
+      // now update the job info
+
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          applicationCount: NewCount,
+        },
+      };
+      const updateResult = await jobsCollection.updateOne(filter, updateDoc);
       res.send(result);
     });
+
+    // patch update job application 
+
+    app.patch('/job-applications/:id', async (req, res) => {
+      const id = req.params.id;
+      const data = req.body;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = { $set: { status: data.status } };
+    
+      const result = await jobApplicationCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+
+
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
